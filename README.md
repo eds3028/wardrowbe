@@ -268,12 +268,32 @@ AI_TEXT_MODEL=llama3.2-vision:11b  # Same model for both tasks
 
 ### Docker Compose (Production)
 
-See [docker-compose.prod.yml](docker-compose.prod.yml) for production configuration.
+See [docker-compose.prod.yml](docker-compose.prod.yml) for production configuration. The production compose file includes a one-shot `migrate` service, so database migrations run automatically before the backend and worker start.
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
-docker compose exec backend alembic upgrade head
+cp .env.example .env
+# Edit .env with your private production values. Do not commit .env.
+docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 ```
+
+### Portainer / Homelab configuration
+
+Keep deployment-specific values such as `NEXTAUTH_URL`, `APP_URL`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `AI_BASE_URL`, `POSTGRES_PASSWORD`, `SECRET_KEY`, and `NEXTAUTH_SECRET` in a Portainer stack environment or a private `.env`/secrets file. The production compose file intentionally requires these values instead of embedding a real domain, OIDC server, or LAN address in git. If your secrets file is not named `.env`, load it through Portainer's environment editor or run Compose with `--env-file /path/to/secrets.env`; service-level `env_file` entries alone are not enough for `${...}` interpolation.
+
+For Authentik, use the provider issuer URL from Authentik's OpenID configuration, which is often an application/provider URL rather than only the auth server root. Register the redirect URI as:
+
+```text
+{NEXTAUTH_URL}/api/auth/callback/oidc
+```
+
+For Ollama on another Docker/LAN host, set:
+
+```env
+AI_BASE_URL=http://YOUR_OLLAMA_HOST_OR_IP:11434/v1
+AI_API_KEY=not-needed
+```
+
+NGINX listens on `${NGINX_BIND:-0.0.0.0}:${NGINX_PORT:-8080}` by default. Use `NGINX_BIND=127.0.0.1` when another same-host reverse proxy is the only caller.
 
 ### Kubernetes
 
@@ -299,7 +319,11 @@ See the [k8s/](k8s/) directory for Kubernetes manifests including:
 | `OIDC_CLIENT_ID` | OIDC client ID | If OIDC |
 | `OIDC_CLIENT_SECRET` | OIDC client secret | If OIDC |
 | `OIDC_SKIP_SSL_VERIFY` | Skip TLS verification for OIDC provider (self-signed certs) | No |
-| `LOCAL_DNS` | Custom DNS server for container name resolution (e.g. local OIDC host) | No |
+| `APP_URL` | Public app URL used in notifications and links | Yes in prod |
+| `NGINX_BIND` | Host address for NGINX to bind (default `0.0.0.0`) | No |
+| `NGINX_PORT` | Host port for NGINX (default `8080`) | No |
+| `NGINX_AI_TIMEOUT` | NGINX read timeout for slow AI routes | No |
+| `WARDROWBE_ENV_FILE` | Optional service `env_file` path; still pass non-`.env` files with `docker compose --env-file` or Portainer env vars for interpolation | No |
 | `SMTP_HOST` | SMTP server for email notifications | No |
 | `SMTP_PORT` | SMTP port (default: 587) | No |
 | `SMTP_USER` | SMTP username | No |
@@ -335,7 +359,7 @@ If neither is configured, the remove-background button returns a 501 with setup 
 - **Development Mode** (default): Simple email/name login, no setup required
 - **OIDC Mode**: Any OIDC provider (PocketID, Authentik, Keycloak, Auth0, etc.)
 
-To enable OIDC, set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` in your `.env`. If your OIDC provider uses a self-signed certificate, set `OIDC_SKIP_SSL_VERIFY=true`. If your OIDC provider runs on a hostname that Docker containers can't resolve (e.g. a local DNS name), set `LOCAL_DNS` to your DNS server IP, or set `OIDC_HOST` and `OIDC_HOST_IP` to inject the hostname directly into the container's `/etc/hosts`.
+To enable OIDC, set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` in your `.env` or Portainer stack environment. If your OIDC provider uses a self-signed certificate, set `OIDC_SKIP_SSL_VERIFY=true` for backend validation and `NODE_TLS_REJECT_UNAUTHORIZED=0` for NextAuth. Leave both verification settings enabled for public HTTPS providers with valid certificates.
 
 When registering the app in your OIDC provider, use this as the callback/redirect URI:
 
@@ -343,10 +367,10 @@ When registering the app in your OIDC provider, use this as the callback/redirec
 {NEXTAUTH_URL}/api/auth/callback/oidc
 ```
 
-For example, if `NEXTAUTH_URL=http://localhost:8080`, the callback URL is:
+For example, if `NEXTAUTH_URL=https://wardrowbe.example.com`, the callback URL is:
 
 ```
-http://localhost:8080/api/auth/callback/oidc
+https://wardrowbe.example.com/api/auth/callback/oidc
 ```
 
 ### Notifications

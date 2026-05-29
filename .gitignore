@@ -16,6 +16,9 @@ build/
 .env
 .env.local
 .env.production
+.env.homelab
+.env.portainer
+.env.secrets
 .env.*.local
 
 # IDE

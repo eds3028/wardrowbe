@@ -2,6 +2,8 @@ import { NextAuthOptions } from 'next-auth';
 import type { OAuthConfig } from 'next-auth/providers/oauth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
+const oidcIssuerUrl = process.env.OIDC_ISSUER_URL?.replace(/\/$/, '');
+
 interface OIDCProfile {
   sub: string;
   name?: string;
@@ -14,7 +16,7 @@ const OIDCProvider: OAuthConfig<OIDCProfile> = {
   id: 'oidc',
   name: 'SSO',
   type: 'oauth',
-  wellKnown: `${process.env.OIDC_ISSUER_URL}/.well-known/openid-configuration`,
+  wellKnown: `${oidcIssuerUrl}/.well-known/openid-configuration`,
   clientId: process.env.OIDC_CLIENT_ID!,
   clientSecret: process.env.OIDC_CLIENT_SECRET!,
   authorization: {
@@ -64,7 +66,7 @@ const DevCredentialsProvider = CredentialsProvider({
 function getProviders() {
   const providers = [];
 
-  if (process.env.OIDC_ISSUER_URL) {
+  if (oidcIssuerUrl) {
     providers.push(OIDCProvider);
   }
 
