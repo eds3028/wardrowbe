@@ -1,4 +1,5 @@
 import logging
+import ssl
 import time
 from typing import Any
 
@@ -15,15 +16,17 @@ _jwks_cache_times: dict[str, float] = {}
 JWKS_CACHE_TTL = 3600
 
 
-def _get_jwk_client(jwks_uri: str) -> PyJWKClient:
+def _get_jwk_client(jwks_uri: str, verify_tls: bool = True) -> PyJWKClient:
     now = time.time()
-    cached_time = _jwks_cache_times.get(jwks_uri, 0)
-    if jwks_uri in _jwk_clients and (now - cached_time) < JWKS_CACHE_TTL:
-        return _jwk_clients[jwks_uri]
+    cache_key = f"{jwks_uri}|verify={verify_tls}"
+    cached_time = _jwks_cache_times.get(cache_key, 0)
+    if cache_key in _jwk_clients and (now - cached_time) < JWKS_CACHE_TTL:
+        return _jwk_clients[cache_key]
 
-    client = PyJWKClient(jwks_uri)
-    _jwk_clients[jwks_uri] = client
-    _jwks_cache_times[jwks_uri] = now
+    ssl_context = None if verify_tls else ssl._create_unverified_context()
+    client = PyJWKClient(jwks_uri, ssl_context=ssl_context)
+    _jwk_clients[cache_key] = client
+    _jwks_cache_times[cache_key] = now
     return client
 
 
@@ -35,9 +38,11 @@ async def validate_oidc_id_token(
     settings = get_settings()
 
     try:
-        discovery_url = f"{issuer_url.rstrip('/')}/.well-known/openid-configuration"
+        normalized_issuer = issuer_url.rstrip("/")
+        verify_tls = not settings.oidc_skip_ssl_verify
+        discovery_url = f"{normalized_issuer}/.well-known/openid-configuration"
         async with httpx.AsyncClient(
-            timeout=10, verify=not settings.debug, follow_redirects=True
+            timeout=10, verify=verify_tls, follow_redirects=True
         ) as client:
             disc_resp = await client.get(discovery_url)
             disc_resp.raise_for_status()
@@ -49,14 +54,14 @@ async def validate_oidc_id_token(
     audience = [client_id] if isinstance(client_id, str) else client_id
 
     try:
-        jwk_client = _get_jwk_client(jwks_uri)
+        jwk_client = _get_jwk_client(jwks_uri, verify_tls=not settings.oidc_skip_ssl_verify)
         signing_key = jwk_client.get_signing_key_from_jwt(id_token)
         payload: dict[str, Any] = jwt.decode(
             id_token,
             signing_key.key,
             algorithms=["RS256", "ES256"],
             audience=audience,
-            issuer=issuer_url,
+            issuer=issuer_url.rstrip("/"),
             options={"verify_exp": True},
         )
     except jwt.PyJWTError:
