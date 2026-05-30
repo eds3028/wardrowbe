@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Annotated
 from urllib.parse import urlencode
@@ -25,6 +26,7 @@ from app.utils.rate_limit import rate_limit_by_ip
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def create_access_token(external_id: str, expires_delta: timedelta | None = None) -> str:
@@ -121,12 +123,19 @@ async def sync_user(
                 valid_audiences,
             )
         except ValueError as e:
+            logger.warning("OIDC auth sync rejected token: %s", e)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=str(e),
             ) from None
 
         if oidc_claims.get("sub") != sync_data.external_id:
+            logger.warning(
+                "OIDC auth sync rejected token: subject mismatch. "
+                "token_sub_present=%s request_external_id_present=%s",
+                bool(oidc_claims.get("sub")),
+                bool(sync_data.external_id),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token subject does not match external_id",
@@ -135,6 +144,12 @@ async def sync_user(
         claims_email = oidc_claims.get("email", "").lower().strip()
         request_email = sync_data.email.lower().strip()
         if claims_email and request_email and claims_email != request_email:
+            logger.warning(
+                "OIDC auth sync rejected token: email mismatch. "
+                "token_email_present=%s request_email_present=%s",
+                bool(claims_email),
+                bool(request_email),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token email does not match request email",
