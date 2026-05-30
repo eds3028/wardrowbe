@@ -106,7 +106,15 @@ export const authOptions: NextAuthOptions = {
 
       // Initial sign in - sync with backend and get API token
       if (user) {
+        const oidcIdToken = account?.id_token;
         try {
+          if (account?.provider === 'oidc' && !oidcIdToken) {
+            console.error(
+              'OIDC backend sync missing id_token; access_token_present:',
+              Boolean(account.access_token)
+            );
+          }
+
           const response = await fetch(`${apiUrl}/api/v1/auth/sync`, {
             method: 'POST',
             headers: {
@@ -117,7 +125,9 @@ export const authOptions: NextAuthOptions = {
               email: user.email,
               display_name: user.name || user.email?.split('@')[0] || 'User',
               avatar_url: user.image,
-              id_token: account?.id_token,
+              // Backend validates an OIDC ID token here. Do not send the OAuth access_token,
+              // whose audience/claims can differ from the client ID for providers like Authentik.
+              id_token: oidcIdToken,
             }),
           });
 
@@ -135,7 +145,11 @@ export const authOptions: NextAuthOptions = {
 
           const errorData = await response.json().catch(() => ({}));
           const syncError = errorData.detail || `Backend sync failed (${response.status})`;
-          console.error('Failed to sync user to backend:', syncError);
+          console.error('Failed to sync user to backend:', syncError, {
+            provider: account?.provider,
+            idTokenPresent: Boolean(oidcIdToken),
+            accessTokenPresent: Boolean(account?.access_token),
+          });
           return {
             ...token,
             sub: user.id,
